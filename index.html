@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Valentine</title>
+
+  <style>
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      height:100vh;
+      display:grid;
+      place-items:center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:#000;
+      overflow:hidden;
+      color:#fff;
+    }
+
+    /* FX canvas (lightning + fire) */
+    canvas#fx{
+      position:fixed;
+      inset:0;
+      width:100%;
+      height:100%;
+      pointer-events:none;
+      z-index:1;
+    }
+
+    .card{
+      width:min(560px, 92vw);
+      background: rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.12);
+      border-radius:24px;
+      padding:26px 20px;
+      text-align:center;
+      box-shadow: 0 18px 70px rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+      position:relative;
+      z-index:2;
+    }
+
+    h1{
+      margin: 6px 0 16px;
+      font-size: clamp(24px, 4.6vw, 36px);
+      letter-spacing:.2px;
+    }
+
+    .row{
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      gap:14px;
+      margin-top:8px;
+      flex-wrap:wrap;
+      position: relative;
+    }
+
+    button{
+      border:0;
+      border-radius:999px;
+      padding:12px 20px;
+      font-size:16px;
+      font-weight:800;
+      cursor:pointer;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform .12s ease, filter .12s ease;
+      box-shadow: 0 10px 26px rgba(0,0,0,0.55);
+    }
+    button:active{ transform: scale(.97); }
+
+    #yes{
+      background: linear-gradient(135deg, #ff67a0, #ff3b7a);
+      color:#fff;
+    }
+
+    /* NO stays beside YES, only wiggles a bit using transform */
+    #no{
+      background:#1f1f1f;
+      color:#fff;
+      border:1px solid rgba(255,255,255,0.08);
+      position: relative;
+      transform: translate(0,0);
+      will-change: transform;
+    }
+
+    /* medium message */
+    #msg{
+      display:none;
+      margin-top:18px;
+      font-size: 22px;          /* medium */
+      font-weight: 900;
+      letter-spacing: .6px;
+      line-height: 1.25;
+      color: #ff76ab;
+      text-shadow: 0 0 14px rgba(255, 60, 122, .35);
+    }
+
+    .hint{
+      margin-top:14px;
+      font-size:12px;
+      color: rgba(255,255,255,0.65);
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="fx"></canvas>
+
+  <div class="card">
+    <h1>Will you be my Valentine? 💌</h1>
+
+    <div class="row">
+      <button id="yes">YES ❤️</button>
+      <button id="no">NO 🙈</button>
+    </div>
+
+    <div id="msg">
+      I LOVE U SIGNORA<br/>
+      I WILL COME BACK SOON
+    </div>
+
+    <div class="hint">Try pressing “NO” 😄</div>
+  </div>
+
+<script>
+  // ---------------------------
+  // NO button moves ONLY a little
+  // ---------------------------
+  const noBtn = document.getElementById("no");
+  const yesBtn = document.getElementById("yes");
+  const msg = document.getElementById("msg");
+
+  let lastDx = 0, lastDy = 0;
+
+  function wiggleNo() {
+    // about "a few inches": 30–90px (depends on screen)
+    const max = 80;   // <= change this to 60 for even smaller
+    let dx = (Math.random() * (2*max) - max);
+    let dy = (Math.random() * (2*max) - max);
+
+    // avoid tiny moves
+    if (Math.abs(dx) < 25) dx = dx < 0 ? -25 : 25;
+    if (Math.abs(dy) < 18) dy = dy < 0 ? -18 : 18;
+
+    lastDx = dx; lastDy = dy;
+    noBtn.style.transform = `translate(${dx}px, ${dy}px)`;
+  }
+
+  // desktop hover
+  noBtn.addEventListener("mouseenter", wiggleNo);
+
+  // mobile touch (moves instead of clicking)
+  noBtn.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    wiggleNo();
+  }, { passive:false });
+
+  // ---------------------------
+  // Lightning + Fire FX (Canvas)
+  // ---------------------------
+  const canvas = document.getElementById("fx");
+  const ctx = canvas.getContext("2d");
+
+  let W=0, H=0, DPR=1;
+  function resize(){
+    DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    W = Math.floor(window.innerWidth * DPR);
+    H = Math.floor(window.innerHeight * DPR);
+    canvas.width = W;
+    canvas.height = H;
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  const fire = [];
+  const bolts = [];
+  let fxOn = false;
+  let fxStopAt = 0;
+
+  function rand(min,max){ return Math.random()*(max-min)+min; }
+
+  // Fire particles from bottom center
+  function spawnFire(n=8){
+    for(let i=0;i<n;i++){
+      fire.push({
+        x: (W*0.5) + rand(-70*DPR, 70*DPR),
+        y: H - rand(10*DPR, 40*DPR),
+        vx: rand(-0.8, 0.8)*DPR,
+        vy: rand(-4.2, -1.8)*DPR,
+        life: rand(30, 70),
+        r: rand(2.0, 4.6)*DPR,
+        hue: rand(15, 55) // orange/yellow-ish
+      });
+    }
+  }
+
+  // Lightning bolt generator
+  function makeBolt(){
+    const startX = rand(0.15*W, 0.85*W);
+    const startY = rand(0.05*H, 0.22*H);
+    let x = startX, y = startY;
+
+    const path = [{x,y}];
+    const segments = Math.floor(rand(10, 16));
+    for(let i=0;i<segments;i++){
+      x += rand(-35, 35)*DPR;
+      y += rand(25, 55)*DPR;
+      path.push({x,y});
+      if (y > H*0.75) break;
+    }
+    bolts.push({ path, life: 10 }); // short flash
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    // background glow for mood (subtle)
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = "#ff2f6f";
+    ctx.beginPath();
+    ctx.arc(W*0.5, H*0.5, Math.min(W,H)*0.42, 0, Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Lightning
+    for(let i=bolts.length-1;i>=0;i--){
+      const b = bolts[i];
+      b.life -= 1;
+
+      const a = Math.max(0, b.life/10);
+      ctx.globalAlpha = a;
+
+      // bright white core
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2.2 * DPR;
+      ctx.beginPath();
+      b.path.forEach((p, idx) => idx===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+      ctx.stroke();
+
+      // blue glow
+      ctx.strokeStyle = "rgba(120,190,255,0.85)";
+      ctx.lineWidth = 6.5 * DPR;
+      ctx.beginPath();
+      b.path.forEach((p, idx) => idx===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+      ctx.stroke();
+
+      if (b.life <= 0) bolts.splice(i,1);
+    }
+    ctx.globalAlpha = 1;
+
+    // Fire
+    for(let i=fire.length-1;i>=0;i--){
+      const p = fire[i];
+      p.life -= 1;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.04 * DPR; // slight gravity
+
+      const a = Math.max(0, Math.min(1, p.life/70));
+      ctx.globalAlpha = a;
+      ctx.fillStyle = `hsl(${p.hue}, 95%, 55%)`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      ctx.fill();
+
+      if (p.life <= 0) fire.splice(i,1);
+    }
+    ctx.globalAlpha = 1;
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+
+  function startFX(ms=4500){
+    fxOn = true;
+    fxStopAt = Date.now() + ms;
+
+    // quickly pop some lightning & fire
+    makeBolt();
+    makeBolt();
+    spawnFire(40);
+
+    const fxTimer = setInterval(() => {
+      if (!fxOn) return;
+
+      // fire continues
+      spawnFire(10);
+
+      // lightning randomly
+      if (Math.random() < 0.35) makeBolt();
+
+      if (Date.now() > fxStopAt){
+        fxOn = false;
+        clearInterval(fxTimer);
+      }
+    }, 80);
+  }
+
+  // ---------------------------
+  // YES click
+  // ---------------------------
+  yesBtn.addEventListener("click", () => {
+    msg.style.display = "block";
+
+    // stop NO movement after YES (optional)
+    noBtn.style.pointerEvents = "none";
+    noBtn.style.opacity = "0.45";
+
+    startFX(5200);
+  });
+</script>
+</body>
+</html>
